@@ -180,6 +180,7 @@ public class JdbcMapper {
         ItemsVO isvo = new ItemsVO();
         isvo.setJdbcUriDatabaseName(conf.getDbName());
         isvo.setTableName(tableName);
+        isvo.setItemsManageTable(conf.getItemsManageTable());
         List<Column> is = conf.getDBDAO().doGetTableColumns(isvo);
         logTime("getTableColumns", timerStart, System.currentTimeMillis());
         return is;
@@ -475,7 +476,7 @@ public class JdbcMapper {
         // TODO: in general it would be possible to query the count, earliest and latest values for each item too but it
         // would be a very costly operation
         return itemNameToTableNameMap.keySet().stream().map(itemName -> new JdbcPersistenceItemInfo(itemName))
-                .collect(Collectors.<PersistenceItemInfo> toSet());
+                .collect(Collectors.<PersistenceItemInfo>toSet());
     }
 
     /*****************

@@ -247,6 +247,10 @@ public class JdbcPersistenceService extends JdbcMapper implements ModifiablePers
                 checkDBSchema();
                 // connection has been established ... initialization completed!
                 initialized = true;
+                // A configuration parameter to enable 'fixIssues' at startup could be added in the future, after
+                // validation and fixing is fully implemented for all supported persistence services.
+                // Automated fixing may be undesired in some cases (e.g. may need to properly set time zone first)
+                checkItemTables(false);
             } catch (JdbcSQLException e) {
                 logger.error("Failed to check database schema", e);
                 initialized = false;
@@ -313,7 +317,34 @@ public class JdbcPersistenceService extends JdbcMapper implements ModifiablePers
     }
 
     /**
-     * Check schema for integrity issues.
+     * Check schema of all item tables for integrity issues.
+     *
+     * @param fixIssues If true will attempt to fix issues
+     * @throws JdbcSQLException on SQL errors
+     */
+    private void checkItemTables(boolean fixIssues) throws JdbcSQLException {
+        List<Entry<String, String>> itemNameToTableName = getItemNameToTableNameMap().entrySet().stream()
+                .sorted(Map.Entry.comparingByKey()).collect(Collectors.toList());
+        for (Entry<String, String> entry : itemNameToTableName) {
+            String itemName = entry.getKey();
+            String tableName = entry.getValue();
+            Collection<String> issues = getSchemaIssues(tableName, itemName);
+            if (!issues.isEmpty()) {
+                for (String issue : issues) {
+                    logger.warn("Schema issue on table \"{}\" for item '{}': {}", tableName, itemName, issue);
+                }
+                if (fixIssues) {
+                    logger.warn("Attempting to fix schema issues for Item tables");
+                    fixSchemaIssues(tableName, itemName);
+                } else {
+                    logger.warn("You may fix schema issues running 'jdbc schema fix {}' in the console.", itemName);
+                }
+            }
+        }
+    }
+
+    /**
+     * Check schema of specific item table for integrity issues.
      *
      * @param tableName for which columns should be checked
      * @param itemName that corresponds to table
@@ -347,7 +378,8 @@ public class JdbcPersistenceService extends JdbcMapper implements ModifiablePers
                 if (!"time".equals(columnName)) {
                     issues.add("Column name 'time' expected, but is '" + columnName + "'");
                 }
-                if (!timeDataType.equalsIgnoreCase(column.getColumnType())) {
+                if (!timeDataType.equalsIgnoreCase(column.getColumnType())
+                        && !timeDataType.equalsIgnoreCase(column.getColumnTypeAlias())) {
                     issues.add("Column type '" + timeDataType + "' expected, but is '"
                             + column.getColumnType().toUpperCase() + "'");
                 }
@@ -358,7 +390,8 @@ public class JdbcPersistenceService extends JdbcMapper implements ModifiablePers
                 if (!"value".equals(columnName)) {
                     issues.add("Column name 'value' expected, but is '" + columnName + "'");
                 }
-                if (!valueDataType.equalsIgnoreCase(column.getColumnType())) {
+                if (!valueDataType.equalsIgnoreCase(column.getColumnType())
+                        && !valueDataType.equalsIgnoreCase(column.getColumnTypeAlias())) {
                     issues.add("Column type '" + valueDataType + "' expected, but is '"
                             + column.getColumnType().toUpperCase() + "'");
                 }
@@ -403,13 +436,17 @@ public class JdbcPersistenceService extends JdbcMapper implements ModifiablePers
         for (Column column : columns) {
             String columnName = column.getColumnName();
             if ("time".equalsIgnoreCase(columnName)) {
-                if (!"time".equals(columnName) || !timeDataType.equalsIgnoreCase(column.getColumnType())
+                if (!"time".equals(columnName)
+                        || (!timeDataType.equalsIgnoreCase(column.getColumnType())
+                                && !timeDataType.equalsIgnoreCase(column.getColumnTypeAlias()))
                         || column.getIsNullable()) {
                     alterTableColumn(tableName, "time", timeDataType, false);
                     isFixed = true;
                 }
             } else if ("value".equalsIgnoreCase(columnName)) {
-                if (!"value".equals(columnName) || !valueDataType.equalsIgnoreCase(column.getColumnType())
+                if (!"value".equals(columnName)
+                        || (!valueDataType.equalsIgnoreCase(column.getColumnType())
+                                && !valueDataType.equalsIgnoreCase(column.getColumnTypeAlias()))
                         || !column.getIsNullable()) {
                     alterTableColumn(tableName, "value", valueDataType, true);
                     isFixed = true;
